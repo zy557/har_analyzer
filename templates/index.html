@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>HAR Viewer</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <header class="toolbar">
+      <div class="left">
+        <h1>HAR Viewer</h1>
+      </div>
+      <div class="right">
+        <form id="uploadForm">
+          <input type="file" id="fileInput" accept=".har" />
+          <button type="submit">上传 HAR</button>
+          <button type="button" id="loadSampleBtn">加载示例</button>
+        </form>
+      </div>
+    </header>
+
+    <section class="filters">
+      <input type="text" id="searchInput" placeholder="筛选 URL / MIME / 状态..." />
+      <input type="text" id="domainInput" placeholder="按域名过滤，如: www.baidu.com" />
+      <input type="text" id="priorityInput" placeholder="按优先级过滤，如: High" />
+      <select id="methodSelect">
+        <option value="">方法</option>
+        <option>GET</option>
+        <option>POST</option>
+        <option>PUT</option>
+        <option>DELETE</option>
+        <option>HEAD</option>
+        <option>OPTIONS</option>
+        <option>PATCH</option>
+      </select>
+      <select id="typeSelect">
+        <option value="">类型</option>
+        <option value="document">document</option>
+        <option value="xhr">xhr</option>
+        <option value="script">script</option>
+        <option value="stylesheet">stylesheet</option>
+        <option value="image">image</option>
+        <option value="other">other</option>
+      </select>
+      <input type="number" id="statusMin" placeholder="状态>="> 
+      <input type="number" id="statusMax" placeholder="状态<=">
+      <select id="groupSelect">
+        <option value="none">不分组</option>
+        <option value="domain">按域名分组</option>
+        <option value="type">按类型分组</option>
+      </select>
+      <select id="sortSelect">
+        <option value="started_ms">按开始时间</option>
+        <option value="time">按耗时</option>
+        <option value="size">按大小</option>
+      </select>
+      <select id="orderSelect">
+        <option value="asc">升序</option>
+        <option value="desc">降序</option>
+      </select>
+      <div id="stats" class="stats"></div>
+      <div id="selStats" class="stats mono"></div>
+    </section>
+
+    <main class="layout">
+      <aside class="sidebar">
+        <ul id="entryList" class="entry-list"></ul>
+      </aside>
+      <section class="detail">
+        <div class="waterfall" style="position:relative">
+          <canvas id="waterfallCanvas"></canvas>
+          <div id="waterfallRuler" class="mono"></div>
+          <div class="wf-controls mono">
+            <span>水平滑动</span>
+            <input type="range" id="wfHScroll" min="0" max="100" value="0" />
+            <span>垂直滑动</span>
+            <input type="range" id="wfVScroll" min="0" max="100" value="0" />
+            <span>垂直缩放</span>
+            <input type="range" id="wfVZoom" min="8" max="40" step="1" value="12" />
+          </div>
+          <div id="wfTooltip" class="wf-tooltip"></div>
+        </div>
+        <div class="tabs">
+          <button class="tab-btn" data-tab="headers">Headers</button>
+          <button class="tab-btn" data-tab="request">Request</button>
+          <button class="tab-btn" data-tab="response">Response</button>
+          <button class="tab-btn" data-tab="timing">Timing</button>
+          <button class="tab-btn" data-tab="cookies">Cookies</button>
+        </div>
+        <div class="tab-content" id="tab-headers"></div>
+        <div class="tab-content" id="tab-request"></div>
+        <div class="tab-content" id="tab-response"></div>
+        <div class="tab-content" id="tab-timing"></div>
+        <div class="tab-content" id="tab-cookies"></div>
+      </section>
+    </main>
+
+    <script src="/static/app.js"></script>
+  </body>
+  </html>
