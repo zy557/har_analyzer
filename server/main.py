@@ -13,6 +13,7 @@ from server.har_utils import (
     build_entry_detail,
     build_stats,
 )
+from server.event_relations import build_event_graph, build_phase_stats
 
 
 app = FastAPI(title="HAR Viewer")
@@ -39,6 +40,11 @@ STATE = {
 @app.get("/")
 async def index(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
+
+
+@app.get("/events")
+async def events_page(request: Request):
+    return templates.TemplateResponse("events.html", {"request": request})
 
 
 @app.post("/api/upload")
@@ -247,3 +253,15 @@ async def download_entry_body(entry_id: int):
 @app.get("/api/stats")
 async def get_stats():
     return build_stats(STATE["entries"])
+
+
+@app.get("/api/event-graph")
+async def get_event_graph():
+    """返回推断的事件关系图（节点与边）。"""
+    return build_event_graph(STATE["entries"])
+
+
+@app.get("/api/event-stats")
+async def get_event_stats():
+    """返回各阶段耗时的总计与按资源类型的分布统计。"""
+    return build_phase_stats(STATE["entries"])

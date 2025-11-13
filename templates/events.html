@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>HAR 事件关系分析</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+    <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+  </head>
+  <body>
+    <header class="toolbar">
+      <div class="left">
+        <h1>HAR 事件关系分析</h1>
+      </div>
+      <div class="right">
+        <a href="/" style="margin-right:12px">返回主页</a>
+        <button type="button" id="loadSampleBtn">加载示例</button>
+      </div>
+    </header>
+
+    <section class="filters">
+      <div class="stats" id="evtSummary"></div>
+    </section>
+
+    <main class="layout">
+      <section class="detail" style="width:250%">
+        <div class="tabs">
+          <button class="tab-btn" data-tab="graph">事件关系图</button>
+          <button class="tab-btn" data-tab="phase">阶段统计</button>
+        </div>
+        <div class="tab-content" id="tab-graph">
+          <div style="margin:8px 0; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+            <button id="buildGraphBtn">生成事件关系图</button>
+            <input type="text" id="filterHost" placeholder="按 host 过滤" style="width:160px;"/>
+            <select id="filterType">
+              <option value="">类型</option>
+              <option value="document">document</option>
+              <option value="script">script</option>
+              <option value="stylesheet">stylesheet</option>
+              <option value="image">image</option>
+              <option value="xhr">xhr</option>
+              <option value="other">other</option>
+            </select>
+            <select id="filterStatus">
+              <option value="">状态</option>
+              <option value="200">200</option>
+              <option value="301">301</option>
+              <option value="302">302</option>
+              <option value="404">404</option>
+              <option value="500">500</option>
+            </select>
+            <select id="rootDocSelect" style="min-width:220px;">
+              <option value="">从 document 开始聚焦子树</option>
+            </select>
+            <button id="applyFilterBtn">应用过滤</button>
+            <label>缩放<input type="range" id="evtZoom" min="0.3" max="2.0" step="0.05" value="1.0"/></label>
+            <label>力强度<input type="range" id="repulsionSlider" min="-500" max="-50" step="10" value="-150"/></label>
+            <label>边长度<input type="range" id="linkDistanceSlider" min="40" max="200" step="5" value="80"/></label>
+            <label>碰撞半径<input type="range" id="collideSlider" min="8" max="48" step="2" value="16"/></label>
+            <label><input type="checkbox" id="onlyChanges"/> 仅显示变化</label>
+            <button id="exportJsonBtn">导出JSON</button>
+            <button id="importJsonBtn">导入JSON</button>
+            <button id="exportPngBtn">导出PNG</button>
+            <button id="snapshotABtn">快照A</button>
+            <button id="snapshotBBtn">快照B</button>
+            <button id="compareBtn">对比快照</button>
+          </div>
+          <div style="display:flex; gap:8px; align-items:flex-start;">
+            <div style="position:relative; border:1px solid #ddd; flex:1; min-width:0;">
+              <canvas id="evtCanvas" style="width:100%; height:640px;"></canvas>
+              <div id="evtTooltip" class="wf-tooltip" style="display:none"></div>
+            </div>
+            <aside style="width:380px; border:1px solid #ddd; padding:8px;">
+              <div style="font-weight:600; margin-bottom:6px;">节点与边（文本）</div>
+              <pre id="graphText" class="mono" style="white-space:pre; max-height:640px; overflow:auto;"></pre>
+            </aside>
+          </div>
+          <div id="compareOut" class="mono" style="white-space:pre; overflow:auto; max-height:240px; border:1px solid #ddd; padding:8px; margin-top:8px;"></div>
+        </div>
+        <div class="tab-content" id="tab-phase">
+          <div style="margin:8px 0;">
+            <button id="loadPhaseBtn">查看阶段统计</button>
+          </div>
+          <div style="position:relative; border:1px solid #ddd; padding:4px;">
+            <div style="margin:8px 0; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+              <label>分组柱状 <input type="checkbox" id="phaseGrouped" /></label>
+              <label>对数Y轴 <input type="checkbox" id="phaseLogScale" /></label>
+              <button id="exportPhaseCsvBtn">导出CSV</button>
+              <button id="exportPhasePngBtn">导出PNG</button>
+            </div>
+            <canvas id="evtPhaseCanvas" style="width:100%; height:480px;"></canvas>
+            <div id="phaseTooltip" class="wf-tooltip" style="display:none"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script src="/static/events.js"></script>
+  </body>
+  </html>
