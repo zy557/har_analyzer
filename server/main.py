@@ -12,6 +12,7 @@ from server.har_utils import (
     build_entry_summary,
     build_entry_detail,
     build_stats,
+    build_network_analysis,
 )
 from server.event_relations import build_event_graph, build_phase_stats
 
@@ -265,3 +266,9 @@ async def get_event_graph():
 async def get_event_stats():
     """返回各阶段耗时的总计与按资源类型的分布统计。"""
     return build_phase_stats(STATE["entries"])
+
+
+@app.get("/api/network-analysis")
+async def get_network_analysis():
+    """返回自动化网络分析结果（慢请求、大响应、错误请求、重定向链、域名统计）。"""
+    return build_network_analysis(STATE["entries"])

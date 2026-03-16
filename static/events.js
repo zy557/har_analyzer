@@ -719,6 +719,9 @@ function initActions() {
   const exportCsvBtn = document.getElementById('exportPhaseCsvBtn'); if (exportCsvBtn) exportCsvBtn.addEventListener('click', exportPhaseCsv);
   const groupedChk = document.getElementById('phaseGrouped'); if (groupedChk) groupedChk.addEventListener('change', ()=>{ if (PhaseCache.last) renderPhaseChart(PhaseCache.last); });
   const logScaleChk = document.getElementById('phaseLogScale'); if (logScaleChk) logScaleChk.addEventListener('change', ()=>{ if (PhaseCache.last) renderPhaseChart(PhaseCache.last); });
+  // 网络分析
+  const analysisBtn = document.getElementById('loadAnalysisBtn'); if (analysisBtn) analysisBtn.addEventListener('click', loadNetworkAnalysis);
+  const exportAnalysisBtn = document.getElementById('exportAnalysisCsvBtn'); if (exportAnalysisBtn) exportAnalysisBtn.addEventListener('click', exportAnalysisCsv);
   // 阶段统计悬停提示
   const phaseCanvas = document.getElementById('evtPhaseCanvas');
   if (phaseCanvas) {
@@ -747,3 +750,145 @@ document.addEventListener('DOMContentLoaded', () => {
   initTabs();
   initActions();
 });
+
+// ===== 网络分析 =====
+let _analysisData = null;
+
+async function loadNetworkAnalysis() {
+  const r = await fetch('/api/network-analysis');
+  if (!r.ok) {
+    const el = document.getElementById('analysisSummary');
+    if (el) el.textContent = '分析失败：请先上传或加载示例';
+    return;
+  }
+  _analysisData = await r.json();
+  renderAnalysis(_analysisData);
+}
+
+function _truncUrl(url, maxLen) {
+  if (!url) return '';
+  if (url.length <= maxLen) return url;
+  return url.slice(0, maxLen - 3) + '...';
+}
+
+function renderAnalysis(data) {
+  // Summary
+  const s = data.summary || {};
+  const sumEl = document.getElementById('analysisSummary');
+  if (sumEl) {
+    sumEl.innerHTML =
+      `<span style="margin-right:16px">请求总数: <b>${s.totalRequests || 0}</b></span>` +
+      `<span style="margin-right:16px">总大小: <b>${((s.totalSize || 0) / 1024).toFixed(1)} KB</b></span>` +
+      `<span style="margin-right:16px">总耗时: <b>${(s.totalTime || 0).toFixed(0)} ms</b></span>` +
+      `<span style="margin-right:16px">平均耗时: <b>${(s.avgTime || 0).toFixed(1)} ms</b></span>` +
+      `<span style="margin-right:16px">错误请求: <b style="color:#c0392b">${s.errorCount || 0}</b></span>` +
+      `<span style="margin-right:16px">重定向: <b>${s.redirectCount || 0}</b></span>` +
+      `<span style="margin-right:16px">域名数: <b>${s.domainCount || 0}</b></span>`;
+  }
+
+  // Domain table
+  const domainTbody = document.getElementById('domainTableBody');
+  if (domainTbody) {
+    domainTbody.innerHTML = '';
+    for (const d of (data.domainStats || [])) {
+      const tr = document.createElement('tr');
+      tr.innerHTML =
+        `<td style="padding:3px 4px; word-break:break-all">${d.domain}</td>` +
+        `<td style="text-align:right; padding:3px 4px">${d.count}</td>` +
+        `<td style="text-align:right; padding:3px 4px">${(d.totalSize / 1024).toFixed(1)}</td>` +
+        `<td style="text-align:right; padding:3px 4px">${d.totalTime.toFixed(0)}</td>` +
+        `<td style="text-align:right; padding:3px 4px; color:${d.errorCount > 0 ? '#c0392b' : ''}">${d.errorCount}</td>`;
+      domainTbody.appendChild(tr);
+    }
+  }
+
+  // Slow requests
+  const slowTbody = document.getElementById('slowTableBody');
+  if (slowTbody) {
+    slowTbody.innerHTML = '';
+    (data.slowRequests || []).forEach((e, i) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML =
+        `<td style="padding:3px 4px">${i + 1}</td>` +
+        `<td style="padding:3px 4px; word-break:break-all" title="${e.url || ''}">${_truncUrl(e.url, 60)}</td>` +
+        `<td style="text-align:right; padding:3px 4px; color:#e67e22"><b>${e.time.toFixed(0)}</b></td>` +
+        `<td style="text-align:right; padding:3px 4px">${e.status || ''}</td>`;
+      slowTbody.appendChild(tr);
+    });
+  }
+
+  // Large responses
+  const largeTbody = document.getElementById('largeTableBody');
+  if (largeTbody) {
+    largeTbody.innerHTML = '';
+    (data.largeResponses || []).forEach((e, i) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML =
+        `<td style="padding:3px 4px">${i + 1}</td>` +
+        `<td style="padding:3px 4px; word-break:break-all" title="${e.url || ''}">${_truncUrl(e.url, 60)}</td>` +
+        `<td style="text-align:right; padding:3px 4px; color:#8e44ad"><b>${(e.size / 1024).toFixed(1)}</b></td>` +
+        `<td style="padding:3px 4px">${e.resourceType || e.mimeType || ''}</td>`;
+      largeTbody.appendChild(tr);
+    });
+  }
+
+  // Error requests
+  const errorTbody = document.getElementById('errorTableBody');
+  if (errorTbody) {
+    errorTbody.innerHTML = '';
+    (data.errorRequests || []).forEach((e, i) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML =
+        `<td style="padding:3px 4px">${i + 1}</td>` +
+        `<td style="padding:3px 4px; word-break:break-all" title="${e.url || ''}">${_truncUrl(e.url, 60)}</td>` +
+        `<td style="text-align:right; padding:3px 4px; color:#c0392b"><b>${e.status}</b></td>` +
+        `<td style="text-align:right; padding:3px 4px">${e.time.toFixed(0)}</td>`;
+      errorTbody.appendChild(tr);
+    });
+  }
+
+  // Redirect chains
+  const chainEl = document.getElementById('redirectChains');
+  if (chainEl) {
+    const chains = data.redirectChains || [];
+    if (!chains.length) {
+      chainEl.textContent = '无重定向链';
+    } else {
+      chainEl.innerHTML = '';
+      chains.forEach((chain, ci) => {
+        const div = document.createElement('div');
+        div.style.cssText = 'margin-bottom:8px; padding:6px; background:#f9f9f9; border-radius:4px;';
+        div.innerHTML = `<span style="font-size:12px; color:#666;">链 ${ci + 1}（${chain.length} 跳）</span>`;
+        const ol = document.createElement('ol');
+        ol.style.cssText = 'margin:4px 0 0 16px; padding:0;';
+        chain.forEach(step => {
+          const li = document.createElement('li');
+          li.style.cssText = 'font-size:12px; word-break:break-all;';
+          const statusColor = (step.status >= 300 && step.status < 400) ? '#e67e22' : (step.status >= 400 ? '#c0392b' : '#27ae60');
+          li.innerHTML = `<b style="color:${statusColor}">${step.status}</b> ${step.url || ''}`;
+          ol.appendChild(li);
+        });
+        div.appendChild(ol);
+        chainEl.appendChild(div);
+      });
+    }
+  }
+}
+
+function exportAnalysisCsv() {
+  const data = _analysisData;
+  if (!data) { alert('请先运行网络分析'); return; }
+  let csv = '分析类型,序号,URL,耗时(ms),大小(KB),状态,资源类型\n';
+  (data.slowRequests || []).forEach((e, i) => {
+    csv += `慢请求,${i+1},"${(e.url||'').replace(/"/g,'""')}",${e.time.toFixed(0)},${(e.size/1024).toFixed(1)},${e.status||''},${e.resourceType||''}\n`;
+  });
+  (data.largeResponses || []).forEach((e, i) => {
+    csv += `大响应,${i+1},"${(e.url||'').replace(/"/g,'""')}",${e.time.toFixed(0)},${(e.size/1024).toFixed(1)},${e.status||''},${e.resourceType||''}\n`;
+  });
+  (data.errorRequests || []).forEach((e, i) => {
+    csv += `错误,${i+1},"${(e.url||'').replace(/"/g,'""')}",${e.time.toFixed(0)},,${e.status||''},${e.resourceType||''}\n`;
+  });
+  const blob = new Blob([csv], {type: 'text/csv'});
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'network_analysis.csv'; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}

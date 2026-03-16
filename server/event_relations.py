@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 
 def _to_int(v: Any, default: int = 0) -> int:
@@ -35,12 +35,41 @@ def _get_initiator_url(e: Dict[str, Any]) -> Optional[str]:
     return None
 
 
+def _get_initiator_type(e: Dict[str, Any]) -> str:
+    """Return the initiator type string from HAR entry, or empty string if not present."""
+    ini = e.get("initiator")
+    if isinstance(ini, dict):
+        t = ini.get("type")
+        if isinstance(t, str):
+            return t.lower()
+    return ""
+
+
+def _classify_reason(ini_type: str, resource_type: str) -> str:
+    """Map initiator type + resource type to an edge reason label.
+
+    Returns one of: 'parser', 'script', 'redirect', 'preload', 'prefetch', 'xhr', 'document'.
+    """
+    if ini_type == "parser":
+        return "parser"
+    if ini_type == "script":
+        return "script"
+    if ini_type == "redirect":
+        return "redirect"
+    if ini_type in ("preload", "prefetch"):
+        return ini_type
+    if resource_type in ("xhr", "fetch"):
+        return "xhr"
+    return "document"
+
+
 def build_event_graph(entries: List[Dict[str, Any]]) -> Dict[str, Any]:
     """
-    Construct a simple event relation graph from HAR entries using heuristics:
+    Construct an event relation graph from HAR entries using heuristics:
     - Nodes: one per entry with timing and meta fields
-    - Edges: from initiator URL -> entry (best-effort URL match),
-             otherwise from first document of same host -> entry
+    - Edges: inferred from initiator type/URL, redirect chains, and host-document fallback
+
+    Reason values on edges: parser | script | redirect | preload | prefetch | xhr | document
 
     Returns: { nodes: [...], edges: [...] }
     """
@@ -57,8 +86,29 @@ def build_event_graph(entries: List[Dict[str, Any]]) -> Dict[str, Any]:
         if (e.get("resourceType") or "") == "document" and e.get("host") and e.get("host") not in host_to_first_doc:
             host_to_first_doc[e.get("host")] = eid
 
+    # Build redirect chain: a 3xx response whose Location header matches the next request URL
+    redirect_target_to_source: Dict[int, Tuple[int, str]] = {}
+    for e in entries:
+        eid = _to_int(e.get("id"))
+        raw = e.get("_raw", {}) or {}
+        resp = raw.get("response", {}) or {}
+        status = _to_int(resp.get("status") or e.get("status"), 0)
+        if 300 <= status < 400:
+            redirect_url = resp.get("redirectURL") or ""
+            if not redirect_url:
+                # fall back to Location header value
+                for h in (resp.get("headers") or []):
+                    if isinstance(h, dict) and (h.get("name") or "").lower() == "location":
+                        redirect_url = h.get("value") or ""
+                        break
+            if redirect_url and redirect_url in url_to_id:
+                target_id = url_to_id[redirect_url]
+                redirect_target_to_source[target_id] = (eid, "redirect")
+
+    edge_set: Set[Tuple[int, int, str]] = set()
     nodes = []
     edges: List[Dict[str, Any]] = []
+
     for e in entries:
         eid = _to_int(e.get("id"))
         start = _to_float(e.get("started_ms"), 0.0)
@@ -79,21 +129,50 @@ def build_event_graph(entries: List[Dict[str, Any]]) -> Dict[str, Any]:
             }
         )
 
-        # Edge inference
-        initiator_url = _get_initiator_url(e)
         src_id: Optional[int] = None
         reason: str = ""
-        if initiator_url and initiator_url in url_to_id:
-            src_id = url_to_id[initiator_url]
-            reason = "initiator"
-        else:
+
+        # 1. Redirect chain takes highest priority
+        if eid in redirect_target_to_source:
+            src_id, reason = redirect_target_to_source[eid]
+
+        # 2. Initiator-based detection
+        if src_id is None:
+            ini_type = _get_initiator_type(e)
+            resource_type = e.get("resourceType") or ""
+            initiator_url = _get_initiator_url(e)
+
+            if ini_type in ("parser", "script", "preload", "prefetch", "redirect"):
+                if initiator_url and initiator_url in url_to_id:
+                    src_id = url_to_id[initiator_url]
+                    reason = _classify_reason(ini_type, resource_type)
+                elif initiator_url:
+                    # initiator URL not in graph (e.g. external document) – still record reason
+                    # but we need a node; fall through to host-doc fallback
+                    reason = _classify_reason(ini_type, resource_type)
+            elif ini_type:
+                # unknown non-empty type
+                if initiator_url and initiator_url in url_to_id:
+                    src_id = url_to_id[initiator_url]
+                    reason = _classify_reason(ini_type, resource_type)
+            else:
+                # No initiator type but URL provided
+                if initiator_url and initiator_url in url_to_id:
+                    src_id = url_to_id[initiator_url]
+                    reason = _classify_reason("", resource_type)
+
+        # 3. Fallback: first document on same host
+        if src_id is None:
             host = e.get("host")
             if host and host in host_to_first_doc and host_to_first_doc[host] != eid:
                 src_id = host_to_first_doc[host]
-                reason = "document"
+                reason = reason or "document"
 
         if src_id is not None:
-            edges.append({"source": src_id, "target": eid, "reason": reason})
+            key = (src_id, eid, reason)
+            if key not in edge_set:
+                edge_set.add(key)
+                edges.append({"source": src_id, "target": eid, "reason": reason})
 
     return {"nodes": nodes, "edges": edges}
 

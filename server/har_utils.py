@@ -254,6 +254,160 @@ def raw_get(obj: Dict[str, Any], keys: List[str]) -> Any:
     return None
 
 
+def build_network_analysis(entries: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Return automated network analysis insights:
+    - slowRequests: top-10 slowest entries
+    - largeResponses: top-10 largest entries
+    - errorRequests: 4xx/5xx entries
+    - redirectChains: sequences of 3xx responses
+    - domainStats: per-domain request count, total size, total time
+    - summary: high-level counts and metrics
+    """
+    from urllib.parse import urlparse
+
+    # ── Slow requests ──────────────────────────────────────────────────────
+    sorted_by_time = sorted(entries, key=lambda e: float(e.get("time") or 0), reverse=True)
+    slow_requests = [
+        {
+            "id": e.get("id"),
+            "url": e.get("url"),
+            "method": e.get("method"),
+            "status": e.get("status"),
+            "time": float(e.get("time") or 0),
+            "size": int(e.get("size") or 0),
+            "resourceType": e.get("resourceType"),
+        }
+        for e in sorted_by_time[:10]
+    ]
+
+    # ── Large responses ────────────────────────────────────────────────────
+    sorted_by_size = sorted(entries, key=lambda e: int(e.get("size") or 0), reverse=True)
+    large_responses = [
+        {
+            "id": e.get("id"),
+            "url": e.get("url"),
+            "method": e.get("method"),
+            "status": e.get("status"),
+            "time": float(e.get("time") or 0),
+            "size": int(e.get("size") or 0),
+            "resourceType": e.get("resourceType"),
+            "mimeType": e.get("mimeType"),
+        }
+        for e in sorted_by_size[:10]
+    ]
+
+    # ── Error requests ─────────────────────────────────────────────────────
+    error_requests = [
+        {
+            "id": e.get("id"),
+            "url": e.get("url"),
+            "method": e.get("method"),
+            "status": e.get("status"),
+            "statusText": e.get("statusText"),
+            "time": float(e.get("time") or 0),
+            "resourceType": e.get("resourceType"),
+        }
+        for e in entries
+        if isinstance(e.get("status"), int) and e["status"] >= 400
+    ]
+
+    # ── Redirect chains ────────────────────────────────────────────────────
+    url_to_entry: Dict[str, Dict[str, Any]] = {}
+    for e in entries:
+        url = e.get("url") or ""
+        if url:
+            url_to_entry[url] = e
+
+    redirect_chains: List[List[Dict[str, Any]]] = []
+    visited_redirects: set = set()
+    for e in entries:
+        status = e.get("status") or 0
+        if not (isinstance(status, int) and 300 <= status < 400):
+            continue
+        eid = e.get("id")
+        if eid in visited_redirects:
+            continue
+        # Start a chain
+        chain = [{"id": e.get("id"), "url": e.get("url"), "status": status}]
+        visited_redirects.add(eid)
+        raw = e.get("_raw", {}) or {}
+        resp = raw.get("response", {}) or {}
+        redirect_url = resp.get("redirectURL") or ""
+        if not redirect_url:
+            for h in (resp.get("headers") or []):
+                if isinstance(h, dict) and (h.get("name") or "").lower() == "location":
+                    redirect_url = h.get("value") or ""
+                    break
+        while redirect_url and redirect_url in url_to_entry:
+            next_e = url_to_entry[redirect_url]
+            next_id = next_e.get("id")
+            if next_id in visited_redirects:
+                break
+            visited_redirects.add(next_id)
+            next_status = next_e.get("status") or 0
+            chain.append({"id": next_id, "url": next_e.get("url"), "status": next_status})
+            if not (isinstance(next_status, int) and 300 <= next_status < 400):
+                break
+            raw2 = next_e.get("_raw", {}) or {}
+            resp2 = raw2.get("response", {}) or {}
+            redirect_url = resp2.get("redirectURL") or ""
+            if not redirect_url:
+                for h in (resp2.get("headers") or []):
+                    if isinstance(h, dict) and (h.get("name") or "").lower() == "location":
+                        redirect_url = h.get("value") or ""
+                        break
+        if len(chain) > 1:
+            redirect_chains.append(chain)
+
+    # ── Domain stats ───────────────────────────────────────────────────────
+    domain_map: Dict[str, Dict[str, Any]] = {}
+    for e in entries:
+        try:
+            host = urlparse(e.get("url", "")).netloc
+        except Exception:
+            host = ""
+        if not host:
+            continue
+        if host not in domain_map:
+            domain_map[host] = {"domain": host, "count": 0, "totalSize": 0, "totalTime": 0.0, "errorCount": 0}
+        domain_map[host]["count"] += 1
+        domain_map[host]["totalSize"] += int(e.get("size") or 0)
+        domain_map[host]["totalTime"] += float(e.get("time") or 0)
+        status = e.get("status") or 0
+        if isinstance(status, int) and status >= 400:
+            domain_map[host]["errorCount"] += 1
+    domain_stats = sorted(domain_map.values(), key=lambda d: d["count"], reverse=True)
+
+    # ── Summary ────────────────────────────────────────────────────────────
+    total_count = len(entries)
+    total_size = sum(int(e.get("size") or 0) for e in entries)
+    total_time = sum(float(e.get("time") or 0) for e in entries)
+    avg_time = total_time / total_count if total_count else 0.0
+    error_count = len(error_requests)
+    redirect_count = sum(
+        1 for e in entries
+        if isinstance(e.get("status"), int) and 300 <= e["status"] < 400
+    )
+
+    return {
+        "summary": {
+            "totalRequests": total_count,
+            "totalSize": total_size,
+            "totalTime": total_time,
+            "avgTime": avg_time,
+            "errorCount": error_count,
+            "redirectCount": redirect_count,
+            "domainCount": len(domain_map),
+        },
+        "slowRequests": slow_requests,
+        "largeResponses": large_responses,
+        "errorRequests": error_requests,
+        "redirectChains": redirect_chains,
+        "domainStats": domain_stats,
+    }
+
+
 def infer_resource_type(mime: str) -> str:
     if not mime:
         return "other"
